@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import Url from "../models/Url.js";
+import { resolveVerifiedCustomDomain } from "./customDomainService.js";
 import { HttpError } from "../utils/httpError.js";
 import { isDuplicateKeyError } from "../utils/mongoErrors.js";
 import { generateShortCode } from "../utils/shortCode.js";
@@ -8,6 +9,8 @@ import {
   validateSafeDestinationUrl
 } from "../utils/urlValidation.js";
 import { normalizeLinkOptions } from "./linkOptions.js";
+import { createShortUrl } from "./urlService.js";
+import { buildShortUrl } from "../utils/shortUrl.js";
 
 const PAGE_SIZE = 20;
 const MAX_PAGE = 10000;
@@ -50,7 +53,7 @@ export async function listOwnedUrls(
   const [urls, total] = await Promise.all([
     urlModel
       .find(filter)
-      .select("code longUrl customAlias clicks clickLimit isActive createdAt expiresAt +passwordHash")
+      .select("code longUrl customAlias shortDomain clicks clickLimit isActive createdAt expiresAt +passwordHash")
       .sort({ createdAt: -1, _id: -1 })
       .skip((page - 1) * PAGE_SIZE)
       .limit(PAGE_SIZE)
@@ -92,6 +95,7 @@ export async function getUserSummary(userId, { urlModel = Url } = {}) {
               code: 1,
               longUrl: 1,
               customAlias: 1,
+              shortDomain: 1,
               clicks: { $ifNull: ["$clicks", 0] },
               isActive: 1,
               expiresAt: 1,
@@ -107,6 +111,7 @@ export async function getUserSummary(userId, { urlModel = Url } = {}) {
               code: 1,
               longUrl: 1,
               customAlias: 1,
+              shortDomain: 1,
               clicks: { $ifNull: ["$clicks", 0] },
               isActive: 1,
               expiresAt: 1,
@@ -136,7 +141,8 @@ export async function updateOwnedUrl(
   {
     urlModel = Url,
     destinationValidator = validateSafeDestinationUrl,
-    codeGenerator = generateShortCode
+    codeGenerator = generateShortCode,
+    domainResolver = resolveVerifiedCustomDomain
   } = {}
 ) {
   const updates = {};
@@ -148,6 +154,11 @@ export async function updateOwnedUrl(
       throw new HttpError(400, "isActive must be a boolean.");
     }
     updates.isActive = changes.isActive;
+  }
+  if (Object.hasOwn(changes, "domainId")) {
+    updates.shortDomain = changes.domainId === null
+      ? null
+      : await domainResolver({ id: changes.domainId, userId });
   }
 
   const linkOptions = await normalizeLinkOptions(changes);
@@ -232,4 +243,52 @@ export async function performBulkAction(
   }
 
   throw new HttpError(400, "action must be enable, disable, or delete.");
+}
+
+export async function bulkImportOwnedUrls(
+  { items, userId, shortDomain = null },
+  { create = createShortUrl } = {}
+) {
+  const results = [];
+  for (const [index, item] of items.entries()) {
+    try {
+      if (
+        !item ||
+        typeof item !== "object" ||
+        Array.isArray(item) ||
+        Object.keys(item).some((field) => !["longUrl", "customAlias"].includes(field))
+      ) {
+        throw new HttpError(400, "Each row must contain longUrl and optional customAlias only.");
+      }
+
+      const input = { ...item };
+      if (typeof input.customAlias === "string" && input.customAlias.trim() === "") {
+        delete input.customAlias;
+      }
+      const url = await create(input, { userId, shortDomain });
+      results.push({
+        row: index + 1,
+        status: "created",
+        code: url.code,
+        shortUrl: buildShortUrl(url.code, url.shortDomain ?? shortDomain),
+        longUrl: url.longUrl
+      });
+    } catch (error) {
+      if (!(error instanceof HttpError) || error.statusCode >= 500) {
+        throw error;
+      }
+      results.push({
+        row: index + 1,
+        status: "error",
+        error: error.message
+      });
+    }
+  }
+
+  const imported = results.filter(({ status }) => status === "created").length;
+  return {
+    imported,
+    failed: results.length - imported,
+    results
+  };
 }

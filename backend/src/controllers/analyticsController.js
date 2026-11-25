@@ -1,7 +1,10 @@
 import mongoose from "mongoose";
-import { config } from "../config/env.js";
-import { getLinkAnalytics } from "../services/analyticsService.js";
+import {
+  getAnonymousLinkAnalytics,
+  getLinkAnalytics
+} from "../services/analyticsService.js";
 import { HttpError } from "../utils/httpError.js";
+import { buildShortUrl } from "../utils/shortUrl.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_RANGE_DAYS = 366;
@@ -67,7 +70,29 @@ export async function linkAnalytics(request, response, next) {
       ...analytics,
       link: {
         ...analytics.link,
-        shortUrl: `${config.publicShortUrlBase}/${analytics.link.code}`
+        shortUrl: buildShortUrl(analytics.link.code, analytics.link.shortDomain)
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function anonymousLinkAnalytics(request, response, next) {
+  try {
+    const token = request.get("x-analytics-token");
+    const { from, to } = resolveDateRange(request.query);
+    const analytics = await getAnonymousLinkAnalytics({
+      code: request.params.code,
+      token,
+      from,
+      to
+    });
+    response.json({
+      ...analytics,
+      link: {
+        ...analytics.link,
+        shortUrl: buildShortUrl(analytics.link.code, analytics.link.shortDomain)
       }
     });
   } catch (error) {

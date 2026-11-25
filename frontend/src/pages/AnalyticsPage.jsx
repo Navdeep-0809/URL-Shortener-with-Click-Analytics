@@ -22,7 +22,56 @@ function toDateInputValue(date) {
   return date.toISOString().slice(0, 10);
 }
 
-function AnalyticsPage({ link, onBack }) {
+function downloadAnalyticsCsv(analytics, code) {
+  const rows = [[
+    "section",
+    "date_or_name",
+    "clicks",
+    "timestamp",
+    "referrer",
+    "device",
+    "browser",
+    "operating_system",
+    "country",
+    "city"
+  ]];
+  rows.push(["summary", "total clicks", analytics.totalClicks]);
+  analytics.clicksByDay.forEach(({ date, clicks }) => rows.push(["daily", date, clicks]));
+  for (const [section, items] of [
+    ["referrer", analytics.referrers],
+    ["device", analytics.devices],
+    ["browser", analytics.browsers],
+    ["operating system", analytics.operatingSystems],
+    ["country", analytics.countries.map(({ country, clicks }) => ({ name: country, clicks }))],
+    ["city", analytics.cities.map(({ city, country, clicks }) => ({ name: `${city}, ${country}`, clicks }))]
+  ]) {
+    items.forEach(({ name, clicks }) => rows.push([section, name, clicks]));
+  }
+  analytics.recentClicks.forEach((click) => rows.push([
+    "recent click",
+    "",
+    "",
+    click.timestamp,
+    click.referrer,
+    click.device,
+    click.browser,
+    click.OS,
+    click.country,
+    click.city
+  ]));
+
+  const csv = `\uFEFF${rows.map((row) => row.map((cell) =>
+    `"${String(cell ?? "").replaceAll('"', '""')}"`
+  ).join(",")).join("\r\n")}`;
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `shortly-${code}-analytics.csv`;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function AnalyticsPage({ link, onBack, analyticsToken = null }) {
   const [to, setTo] = useState(() => toDateInputValue(new Date()));
   const [from, setFrom] = useState(() => {
     const date = new Date();
@@ -38,8 +87,14 @@ function AnalyticsPage({ link, onBack }) {
     setLoading(true);
     setError("");
 
-    api.get(`/urls/${link.id}/analytics`, {
+    const endpoint = analyticsToken
+      ? `/urls/public/${encodeURIComponent(link.code)}/analytics`
+      : `/urls/${link.id}/analytics`;
+    api.get(endpoint, {
       params: { from, to },
+      ...(analyticsToken
+        ? { headers: { "X-Analytics-Token": analyticsToken } }
+        : {}),
       signal: controller.signal
     })
       .then(({ data }) => setAnalytics(data))
@@ -55,7 +110,7 @@ function AnalyticsPage({ link, onBack }) {
       });
 
     return () => controller.abort();
-  }, [link.id, from, to]);
+  }, [link.id, link.code, analyticsToken, from, to]);
 
   return (
     <main className="mx-auto max-w-7xl px-5 py-9 sm:px-8 sm:py-12">
@@ -70,8 +125,21 @@ function AnalyticsPage({ link, onBack }) {
         <div className="min-w-0">
           <p className="text-sm font-semibold uppercase tracking-[0.16em] text-accent">Link insights</p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight text-ink dark:text-white">Click analytics</h1>
-          <a className="mt-2 block break-all text-sm font-medium text-accent hover:underline" href={link.shortUrl} rel="noreferrer" target="_blank">{link.shortUrl}</a>
-          <p className="mt-1 break-all text-sm text-slate-500 dark:text-slate-400">{link.longUrl}</p>
+          {(analytics?.link?.shortUrl ?? link.shortUrl) && (
+            <a
+              className="mt-2 block break-all text-sm font-medium text-accent hover:underline"
+              href={analytics?.link?.shortUrl ?? link.shortUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              {analytics?.link?.shortUrl ?? link.shortUrl}
+            </a>
+          )}
+          {(analytics?.link?.longUrl ?? link.longUrl) && (
+            <p className="mt-1 break-all text-sm text-slate-500 dark:text-slate-400">
+              {analytics?.link?.longUrl ?? link.longUrl}
+            </p>
+          )}
         </div>
         <form
           className="flex flex-wrap items-end gap-3"
@@ -98,6 +166,15 @@ function AnalyticsPage({ link, onBack }) {
               value={to}
             />
           </label>
+          {analytics && (
+            <button
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+              onClick={() => downloadAnalyticsCsv(analytics, link.code)}
+              type="button"
+            >
+              Download CSV
+            </button>
+          )}
         </form>
       </div>
 

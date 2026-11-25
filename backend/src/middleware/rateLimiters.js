@@ -42,6 +42,11 @@ export const analyticsRateLimiter = createLimiter(
   "Too many analytics requests. Please try again later."
 );
 
+export const anonymousAnalyticsRateLimiter = createLimiter(
+  30,
+  "Too many anonymous analytics requests. Please try again later."
+);
+
 export const passwordVerificationRateLimiter = createLimiter(
   10,
   "Too many password attempts. Please wait before trying again."

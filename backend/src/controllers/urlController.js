@@ -1,6 +1,8 @@
-import { config } from "../config/env.js";
+import { createAnalyticsToken, hashAnalyticsToken } from "../utils/analyticsToken.js";
+import { resolveVerifiedCustomDomain } from "../services/customDomainService.js";
 import { createShortUrl } from "../services/urlService.js";
 import { HttpError } from "../utils/httpError.js";
+import { buildShortUrl } from "../utils/shortUrl.js";
 
 const ACCEPTED_FIELDS = new Set([
   "longUrl",
@@ -8,7 +10,8 @@ const ACCEPTED_FIELDS = new Set([
   "expiresAt",
   "clickLimit",
   "oneTimeUse",
-  "password"
+  "password",
+  "domainId"
 ]);
 
 export async function createUrl(request, response, next) {
@@ -21,16 +24,35 @@ export async function createUrl(request, response, next) {
       throw new HttpError(400, "Request body contains unsupported fields.");
     }
 
-    const url = await createShortUrl(body, { userId: request.user?.id ?? null });
+    const userId = request.user?.id ?? null;
+    let shortDomain = null;
+    if (body.domainId !== undefined && body.domainId !== null) {
+      if (!userId) {
+        throw new HttpError(400, "Sign in to use a custom domain.");
+      }
+      shortDomain = await resolveVerifiedCustomDomain({
+        id: body.domainId,
+        userId
+      });
+    }
+
+    const analyticsToken = userId ? null : createAnalyticsToken();
+    const url = await createShortUrl(body, {
+      userId,
+      shortDomain,
+      analyticsTokenHash: analyticsToken ? hashAnalyticsToken(analyticsToken) : null
+    });
     response.status(201).json({
       id: url._id.toString(),
       code: url.code,
       longUrl: url.longUrl,
-      shortUrl: `${config.publicShortUrlBase}/${url.code}`,
+      shortUrl: buildShortUrl(url.code, url.shortDomain),
+      shortDomain: url.shortDomain,
       expiresAt: url.expiresAt,
       clickLimit: url.clickLimit,
       oneTimeUse: url.clickLimit === 1,
       hasPassword: Boolean(url.passwordHash),
+      ...(analyticsToken ? { analyticsToken } : {}),
       createdAt: url.createdAt
     });
   } catch (error) {

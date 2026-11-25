@@ -37,6 +37,18 @@ const urlSchema = new mongoose.Schema(
       default: null,
       index: true
     },
+    shortDomain: {
+      type: String,
+      default: null,
+      trim: true,
+      lowercase: true,
+      maxlength: 253
+    },
+    analyticsTokenHash: {
+      type: String,
+      default: null,
+      select: false
+    },
     customAlias: {
       type: String,
       trim: true,

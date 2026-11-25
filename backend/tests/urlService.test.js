@@ -40,8 +40,27 @@ test("associates a created link with an authenticated owner", async () => {
     destinationValidator,
     userId: "0123456789abcdef01234567"
   });
-
   assert.equal(created.userId, "0123456789abcdef01234567");
+});
+
+test("stores per-link custom domains and hashed anonymous analytics tokens", async () => {
+  let created;
+  const urlModel = {
+    async create(document) {
+      created = document;
+      return { _id: "url-id", ...document };
+    }
+  };
+
+  await createShortUrl(validInput, {
+    urlModel,
+    destinationValidator,
+    shortDomain: "links.example.com",
+    analyticsTokenHash: "hashed-private-token"
+  });
+
+  assert.equal(created.shortDomain, "links.example.com");
+  assert.equal(created.analyticsTokenHash, "hashed-private-token");
 });
 
 test("persists one-time, expiry, and click-limit options on a short link", async () => {

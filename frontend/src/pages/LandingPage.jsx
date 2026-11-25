@@ -1,4 +1,5 @@
 import ShortenForm from "../components/ShortenForm.jsx";
+import AnonymousAnalyticsAccess from "../components/AnonymousAnalyticsAccess.jsx";
 
 const features = [
   {
@@ -18,7 +19,7 @@ const features = [
   }
 ];
 
-function LandingPage({ onNavigate }) {
+function LandingPage({ onNavigate, onViewAnonymousAnalytics }) {
   return (
     <main>
       <section className="relative overflow-hidden px-5 pb-20 pt-16 sm:px-8 sm:pb-28 sm:pt-24">
@@ -46,7 +47,8 @@ function LandingPage({ onNavigate }) {
               <h2 className="text-xl font-bold text-ink dark:text-white">Shorten a link</h2>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Paste a destination and make it shareable.</p>
             </div>
-            <ShortenForm />
+            <ShortenForm onViewAnonymousAnalytics={onViewAnonymousAnalytics} />
+            <AnonymousAnalyticsAccess onOpen={onViewAnonymousAnalytics} />
             <p className="mt-4 text-center text-xs leading-5 text-slate-400">
               Use a custom alias or let us create one for you.
             </p>

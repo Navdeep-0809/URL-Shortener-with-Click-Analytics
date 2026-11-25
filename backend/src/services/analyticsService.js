@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import Click from "../models/Click.js";
 import Url from "../models/Url.js";
 import { HttpError } from "../utils/httpError.js";
+import { matchesAnalyticsToken } from "../utils/analyticsToken.js";
 
 function fillMissingDays(clicksByDay, from, to) {
   const counts = new Map(clicksByDay.map(({ date, clicks }) => [date, clicks]));
@@ -22,7 +23,7 @@ export async function getLinkAnalytics(
 ) {
   const link = await urlModel
     .findOne({ _id: id, userId })
-    .select("code")
+    .select("code longUrl shortDomain")
     .lean();
   if (!link) {
     throw new HttpError(404, "Short link not found.");
@@ -147,7 +148,12 @@ export async function getLinkAnalytics(
   ]);
 
   return {
-    link: { id: link._id.toString(), code: link.code },
+    link: {
+      id: link._id.toString(),
+      code: link.code,
+      longUrl: link.longUrl,
+      shortDomain: link.shortDomain ?? null
+    },
     range: { from: from.toISOString(), to: to.toISOString() },
     totalClicks: analytics?.totals?.[0]?.clicks ?? 0,
     clicksByDay: fillMissingDays(analytics?.clicksByDay ?? [], from, to),
@@ -159,4 +165,24 @@ export async function getLinkAnalytics(
     cities: analytics?.cities ?? [],
     recentClicks: analytics?.recentClicks ?? []
   };
+}
+
+export async function getAnonymousLinkAnalytics(
+  { code, token, from, to },
+  { urlModel = Url, clickModel = Click } = {}
+) {
+  const link = await urlModel
+    .findOne({ code, userId: null })
+    .select("_id code shortDomain +analyticsTokenHash")
+    .lean();
+  if (!link || !matchesAnalyticsToken(token, link.analyticsTokenHash)) {
+    throw new HttpError(404, "Anonymous link analytics not found.");
+  }
+
+  return getLinkAnalytics({
+    id: link._id,
+    userId: null,
+    from,
+    to
+  }, { urlModel, clickModel });
 }

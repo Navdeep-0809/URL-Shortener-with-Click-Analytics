@@ -1,8 +1,15 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import api from "../api/client.js";
 import { getErrorMessage } from "../utils/errors.js";
 
-function ShortenForm({ onCreated }) {
+const QrCodeDialog = lazy(() => import("./QrCodeDialog.jsx"));
+
+function ShortenForm({
+  onCreated,
+  onViewAnonymousAnalytics,
+  allowCustomDomains = false,
+  customDomains = []
+}) {
   const [longUrl, setLongUrl] = useState("");
   const [customAlias, setCustomAlias] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
@@ -13,16 +20,22 @@ function ShortenForm({ onCreated }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showQrCode, setShowQrCode] = useState(false);
+  const [domainId, setDomainId] = useState("");
 
   async function handleSubmit(event) {
     event.preventDefault();
     setError("");
     setResult(null);
     setCopied(false);
+    setShowQrCode(false);
     setLoading(true);
 
     try {
       const request = { longUrl };
+      if (domainId) {
+        request.domainId = domainId;
+      }
       if (customAlias.trim()) {
         request.customAlias = customAlias.trim();
       }
@@ -45,6 +58,7 @@ function ShortenForm({ onCreated }) {
       setClickLimit("");
       setOneTimeUse(false);
       setPassword("");
+      setDomainId("");
       onCreated?.(data);
     } catch (requestError) {
       setError(getErrorMessage(requestError, "We couldn't shorten that URL."));
@@ -59,6 +73,14 @@ function ShortenForm({ onCreated }) {
       setCopied(true);
     } catch {
       setError("Clipboard access is unavailable. Select and copy the short URL instead.");
+    }
+  }
+
+  async function copyAnalyticsToken() {
+    try {
+      await navigator.clipboard.writeText(result.analyticsToken);
+    } catch {
+      setError("Clipboard access is unavailable. Keep the analytics token somewhere private.");
     }
   }
 
@@ -81,6 +103,21 @@ function ShortenForm({ onCreated }) {
             value={longUrl}
           />
         </div>
+        {allowCustomDomains && customDomains.some((domain) => domain.verifiedAt) && (
+          <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
+            Short-link domain
+            <select
+              className="mt-2 block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+              onChange={(event) => setDomainId(event.target.value)}
+              value={domainId}
+            >
+              <option value="">Default domain</option>
+              {customDomains.filter((domain) => domain.verifiedAt).map((domain) => (
+                <option key={domain.id} value={domain.id}>{domain.hostname}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <details className="rounded-xl border border-slate-200 px-4 py-3 dark:border-slate-700">
           <summary className="cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-200">
             Expiry, click limits, and password
@@ -186,6 +223,22 @@ function ShortenForm({ onCreated }) {
             >
               {copied ? "Copied" : "Copy"}
             </button>
+            <button
+              className="shrink-0 rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-slate-900 dark:text-emerald-200"
+              onClick={() => setShowQrCode(true)}
+              type="button"
+            >
+              QR code
+            </button>
+            {result.analyticsToken && onViewAnonymousAnalytics && (
+              <button
+                className="shrink-0 rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-slate-900 dark:text-emerald-200"
+                onClick={() => onViewAnonymousAnalytics(result)}
+                type="button"
+              >
+                View analytics
+              </button>
+            )}
           </div>
           {(result.hasPassword || result.oneTimeUse || result.clickLimit || result.expiresAt) && (
             <p className="mt-3 text-xs text-emerald-800 dark:text-emerald-300">
@@ -196,7 +249,24 @@ function ShortenForm({ onCreated }) {
               ].filter(Boolean).join(" · ")}
             </p>
           )}
+          {result.analyticsToken && (
+            <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-emerald-800 dark:text-emerald-300">
+              Save this private token to access these analytics later.
+              <button
+                className="rounded-md border border-emerald-300 px-2 py-1 font-semibold dark:border-emerald-800"
+                onClick={copyAnalyticsToken}
+                type="button"
+              >
+                Copy analytics token
+              </button>
+            </p>
+          )}
         </div>
+      )}
+      {showQrCode && result && (
+        <Suspense fallback={null}>
+          <QrCodeDialog link={result} onClose={() => setShowQrCode(false)} />
+        </Suspense>
       )}
     </div>
   );

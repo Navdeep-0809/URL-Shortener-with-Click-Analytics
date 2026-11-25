@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { config } from "./env.js";
 import Click from "../models/Click.js";
+import CustomDomain from "../models/CustomDomain.js";
 import User from "../models/User.js";
 import Url from "../models/Url.js";
 
@@ -12,6 +13,7 @@ export async function connectToDatabase() {
   await Url.init();
   await User.init();
   await Click.init();
+  await CustomDomain.init();
   console.log("Connected to MongoDB and verified application indexes.");
 }
 

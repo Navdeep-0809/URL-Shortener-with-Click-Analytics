@@ -1,5 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import api from "../api/client.js";
+import CustomDomainManager from "../components/CustomDomainManager.jsx";
+import LinkImportPanel from "../components/LinkImportPanel.jsx";
 import ShortenForm from "../components/ShortenForm.jsx";
 import Toast from "../components/Toast.jsx";
 import { getErrorMessage } from "../utils/errors.js";
@@ -43,6 +45,8 @@ function DashboardPage({ onViewAnalytics }) {
   const [editingId, setEditingId] = useState(null);
   const [editDestination, setEditDestination] = useState("");
   const [editAlias, setEditAlias] = useState("");
+  const [editDomainId, setEditDomainId] = useState("");
+  const [customDomains, setCustomDomains] = useState([]);
   const [editExpiresAt, setEditExpiresAt] = useState("");
   const [editClickLimit, setEditClickLimit] = useState("");
   const [editOneTimeUse, setEditOneTimeUse] = useState(false);
@@ -62,6 +66,24 @@ function DashboardPage({ onViewAnalytics }) {
     }, 250);
     return () => window.clearTimeout(timer);
   }, [searchInput]);
+
+  useEffect(() => {
+    let active = true;
+    api.get("/domains")
+      .then(({ data }) => {
+        if (active) {
+          setCustomDomains(data.items);
+        }
+      })
+      .catch((requestError) => {
+        if (active) {
+          setError(getErrorMessage(requestError, "Custom domains couldn't be loaded."));
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -105,7 +127,8 @@ function DashboardPage({ onViewAnalytics }) {
     const changes = {
       longUrl: editDestination.trim(),
       expiresAt: editExpiresAt || null,
-      oneTimeUse: editOneTimeUse
+      oneTimeUse: editOneTimeUse,
+      domainId: editDomainId || null
     };
     if (!editOneTimeUse) {
       changes.clickLimit = editClickLimit ? Number(editClickLimit) : null;
@@ -229,13 +252,23 @@ function DashboardPage({ onViewAnalytics }) {
         <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 dark:border-slate-800 dark:bg-slate-900">
           <h2 className="text-lg font-bold text-ink dark:text-white">Create a short link</h2>
           <p className="mb-5 mt-1 text-sm text-slate-500 dark:text-slate-400">New links created while signed in are saved to your account.</p>
-          <ShortenForm onCreated={() => setRefreshKey((value) => value + 1)} />
+          <ShortenForm
+            allowCustomDomains
+            customDomains={customDomains}
+            onCreated={() => setRefreshKey((value) => value + 1)}
+          />
         </div>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-1">
           <LinkHighlights title="Top links" links={summary.topLinks} emptyLabel="Clicks will appear here as your links are visited." />
           <LinkHighlights title="Recently created" links={summary.recentLinks} emptyLabel="Links you create will appear here." />
         </div>
       </section>
+
+      <CustomDomainManager onChanged={setCustomDomains} />
+      <LinkImportPanel
+        domains={customDomains}
+        onImported={() => setRefreshKey((value) => value + 1)}
+      />
 
       <section className="mt-10">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -337,6 +370,22 @@ function DashboardPage({ onViewAnalytics }) {
                               placeholder="Leave blank to use a generated code"
                               value={editAlias}
                             />
+                            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300" htmlFor={`domain-${link.id}`}>
+                              Short-link domain
+                              <select
+                                className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-normal dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                                id={`domain-${link.id}`}
+                                onChange={(event) => setEditDomainId(event.target.value)}
+                                value={editDomainId}
+                              >
+                                <option value="">Default domain</option>
+                                {customDomains.map((domain) => (
+                                  <option disabled={!domain.verifiedAt} key={domain.id} value={domain.id}>
+                                    {domain.hostname}{domain.verifiedAt ? "" : " (not verified)"}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
                             <div className="grid gap-3 sm:grid-cols-2">
                               <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300" htmlFor={`expiry-${link.id}`}>
                                 Expiration date
@@ -433,6 +482,9 @@ function DashboardPage({ onViewAnalytics }) {
                             setEditingId(link.id);
                             setEditDestination(link.longUrl);
                             setEditAlias(link.customAlias ?? "");
+                            setEditDomainId(
+                              customDomains.find((domain) => domain.hostname === link.shortDomain)?.id ?? ""
+                            );
                             setEditExpiresAt(link.expiresAt ? new Date(link.expiresAt).toISOString().slice(0, 10) : "");
                             setEditClickLimit(link.clickLimit && link.clickLimit > 1 ? String(link.clickLimit) : "");
                             setEditOneTimeUse(link.oneTimeUse ?? link.clickLimit === 1);

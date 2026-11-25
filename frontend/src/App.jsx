@@ -10,6 +10,7 @@ function Application() {
   const { user, loading, signIn, register, signOut } = useAuth();
   const [view, setView] = useState("home");
   const [analyticsLink, setAnalyticsLink] = useState(null);
+  const [anonymousAnalytics, setAnonymousAnalytics] = useState(null);
   const [darkMode, setDarkMode] = useState(() => {
     const savedTheme = localStorage.getItem("shortly.theme");
     return savedTheme
@@ -100,8 +101,22 @@ function Application() {
         <Suspense fallback={<main className="flex min-h-[60vh] items-center justify-center" role="status">Loading analytics…</main>}>
           <AnalyticsPage link={analyticsLink} onBack={() => setView("dashboard")} />
         </Suspense>
+      ) : view === "publicAnalytics" && anonymousAnalytics ? (
+        <Suspense fallback={<main className="flex min-h-[60vh] items-center justify-center" role="status">Loading analytics…</main>}>
+          <AnalyticsPage
+            analyticsToken={anonymousAnalytics.analyticsToken}
+            link={anonymousAnalytics}
+            onBack={() => setView("home")}
+          />
+        </Suspense>
       ) : (
-        <LandingPage onNavigate={setView} />
+        <LandingPage
+          onNavigate={setView}
+          onViewAnonymousAnalytics={(link) => {
+            setAnonymousAnalytics(link);
+            setView("publicAnalytics");
+          }}
+        />
       )}
 
       <footer className="border-t border-slate-200 px-5 py-5 text-center text-xs text-slate-400 dark:border-slate-800">

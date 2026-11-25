@@ -1,12 +1,14 @@
 import mongoose from "mongoose";
-import { config } from "../config/env.js";
+import { buildShortUrl } from "../utils/shortUrl.js";
 import {
+  bulkImportOwnedUrls,
   deleteOwnedUrl,
   getUserSummary,
   listOwnedUrls,
   performBulkAction,
   updateOwnedUrl
 } from "../services/urlManagementService.js";
+import { resolveVerifiedCustomDomain } from "../services/customDomainService.js";
 import { HttpError } from "../utils/httpError.js";
 
 const PATCH_FIELDS = new Set([
@@ -16,16 +18,19 @@ const PATCH_FIELDS = new Set([
   "expiresAt",
   "clickLimit",
   "oneTimeUse",
-  "password"
+  "password",
+  "domainId"
 ]);
 const BULK_FIELDS = new Set(["ids", "action"]);
+const IMPORT_FIELDS = new Set(["items", "domainId"]);
 
 function serializeUrl(url) {
   return {
     id: url._id.toString(),
     code: url.code,
     longUrl: url.longUrl,
-    shortUrl: `${config.publicShortUrlBase}/${url.code}`,
+    shortUrl: buildShortUrl(url.code, url.shortDomain),
+    shortDomain: url.shortDomain ?? null,
     customAlias: url.customAlias,
     clicks: url.clicks,
     clickLimit: url.clickLimit,
@@ -128,6 +133,34 @@ export async function bulkAction(request, response, next) {
       ids: request.body.ids,
       action: request.body.action,
       userId: request.user.id
+    });
+    response.json(result);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function bulkImport(request, response, next) {
+  try {
+    validateBody(request.body, IMPORT_FIELDS);
+    if (
+      !Array.isArray(request.body.items) ||
+      request.body.items.length < 1 ||
+      request.body.items.length > 100
+    ) {
+      throw new HttpError(400, "items must contain between 1 and 100 links.");
+    }
+
+    const shortDomain = request.body.domainId
+      ? await resolveVerifiedCustomDomain({
+          id: request.body.domainId,
+          userId: request.user.id
+        })
+      : null;
+    const result = await bulkImportOwnedUrls({
+      items: request.body.items,
+      userId: request.user.id,
+      shortDomain
     });
     response.json(result);
   } catch (error) {

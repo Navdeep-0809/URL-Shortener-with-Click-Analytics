@@ -16,7 +16,9 @@ export async function createShortUrl(
     urlModel = Url,
     codeGenerator = generateShortCode,
     destinationValidator = validateSafeDestinationUrl,
-    userId = null
+    userId = null,
+    shortDomain = null,
+    analyticsTokenHash = null
   } = {}
 ) {
   const { longUrl, customAlias } = input;
@@ -27,6 +29,10 @@ export async function createShortUrl(
     throw new HttpError(409, "That customAlias is already in use.");
   }
   const options = await normalizeLinkOptions(input, { creating: true });
+  const extraFields = {
+    ...(shortDomain ? { shortDomain } : {}),
+    ...(analyticsTokenHash ? { analyticsTokenHash } : {})
+  };
 
   if (alias) {
     try {
@@ -35,6 +41,7 @@ export async function createShortUrl(
         longUrl: normalizedLongUrl,
         customAlias: alias,
         userId,
+        ...extraFields,
         ...options
       });
     } catch (error) {
@@ -51,6 +58,7 @@ export async function createShortUrl(
         code: codeGenerator(),
         longUrl: normalizedLongUrl,
         userId,
+        ...extraFields,
         ...options
       });
     } catch (error) {

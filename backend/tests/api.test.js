@@ -46,6 +46,14 @@ test("user link management is protected by bearer authentication", async () => {
   try {
     const linksResponse = await fetch(`${baseUrl}/api/urls`);
     assert.equal(linksResponse.status, 401);
+    const domainsResponse = await fetch(`${baseUrl}/api/domains`);
+    assert.equal(domainsResponse.status, 401);
+    const importResponse = await fetch(`${baseUrl}/api/urls/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: [{ longUrl: "https://example.com" }] })
+    });
+    assert.equal(importResponse.status, 401);
 
     const registrationResponse = await fetch(`${baseUrl}/api/auth/register`, {
       method: "POST",

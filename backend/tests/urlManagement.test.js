@@ -125,6 +125,35 @@ test("updates expiry and click limits only within the authenticated owner scope"
   assert.equal(updated.clickLimit, 3);
 });
 
+test("assigns a verified owner domain when updating a link", async () => {
+  let capturedUpdate;
+  const domainId = "1123456789abcdef01234567";
+  const urlModel = {
+    findOneAndUpdate(_filter, update) {
+      capturedUpdate = update;
+      return {
+        select: () => ({
+          lean: async () => ({ _id: linkId, code: "short123", shortDomain: "links.example.com" })
+        })
+      };
+    }
+  };
+
+  await updateOwnedUrl({
+    id: linkId,
+    userId: ownerId,
+    changes: { domainId }
+  }, {
+    urlModel,
+    domainResolver: async (input) => {
+      assert.deepEqual(input, { id: domainId, userId: ownerId });
+      return "links.example.com";
+    }
+  });
+
+  assert.equal(capturedUpdate.$set.shortDomain, "links.example.com");
+});
+
 test("deletes only an owner's link", async () => {
   let capturedFilter;
   const urlModel = {

@@ -7,17 +7,19 @@ import { apiRateLimiter, redirectRateLimiter } from "./middleware/rateLimiters.j
 import { redirectToUrl } from "./controllers/redirectController.js";
 import authRoutes from "./routes/authRoutes.js";
 import urlRoutes from "./routes/urlRoutes.js";
+import domainRoutes from "./routes/domainRoutes.js";
 
 const app = express();
 
 app.use(helmet());
 app.use(cors({ origin: config.frontendOrigin }));
-app.use(express.json({ limit: "10kb" }));
+app.use(express.json({ limit: "256kb" }));
 app.use(express.urlencoded({ extended: false, limit: "10kb" }));
 app.use("/api", apiRateLimiter);
 
 app.use("/api/auth", authRoutes);
 app.use("/api/urls", urlRoutes);
+app.use("/api/domains", domainRoutes);
 
 app.get("/api/health", (_request, response) => {
   response.json({ status: "ok" });

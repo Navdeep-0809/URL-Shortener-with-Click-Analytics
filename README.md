@@ -169,10 +169,15 @@ The browser dashboard supports creating saved links, setting expiration dates,
 click limits, one-time use, and link passwords, searching by short code or
 destination, filtering active/disabled links, editing destinations and link
 controls, copying short URLs, downloading a QR code, disabling/enabling,
-deleting, and bulk actions. Each saved link opens an analytics page with a date filter,
-clicks-over-time chart, referrer/device/browser/OS breakdowns, approximate
-country/city breakdowns, and recent click events. The dashboard also shows
-owner-scoped link totals, click totals, recent links, and top links.
+deleting, and bulk actions. QR codes are also available immediately after
+shortening. Dashboard users can import up to 100 links from a CSV or
+line-separated URL list, connect and verify custom domains, and choose a
+verified domain for a link. Each saved link opens an analytics page with a date
+filter, clicks-over-time chart, referrer/device/browser/OS breakdowns,
+approximate country/city breakdowns, recent click events, and CSV export. The
+dashboard also shows owner-scoped link totals, click totals, recent links, and
+top links. Anonymous links include private analytics access using a token
+returned at creation; the raw token is never stored.
 Unauthenticated visitors can still shorten links, but cannot access saved-link
 management endpoints.
 
@@ -219,10 +224,16 @@ Invoke-RestMethod `
 | PATCH | `/api/urls/:id` | Update destination, alias, active state, expiry, limits, or password |
 | DELETE | `/api/urls/:id` | Delete one owned link |
 | POST | `/api/urls/bulk` | Enable, disable, or delete up to 100 owned links |
+| POST | `/api/urls/import` | Import 1-100 owner-scoped links with per-row results |
 | GET | `/api/urls/:id/analytics?from=&to=` | Owner-scoped click breakdowns for an inclusive date range (maximum 366 days) |
+| GET | `/api/urls/public/:code/analytics?from=&to=` | Anonymous-link analytics; requires `X-Analytics-Token` |
 | POST | `/api/urls/:code/verify` | Verify a password-protected link and redirect after success |
+| GET/POST | `/api/domains` | List or connect a custom domain for the signed-in account |
+| POST | `/api/domains/:id/verify` | Verify a custom domain's DNS TXT challenge |
+| DELETE | `/api/domains/:id` | Disconnect a domain not currently used by links |
 
-`POST /api/urls` accepts optional `expiresAt` (ISO date or timestamp),
+`POST /api/urls` accepts optional `domainId` to use one of the owner's verified
+custom domains, plus `expiresAt` (ISO date or timestamp),
 `clickLimit` (positive integer), `oneTimeUse` (boolean), and `password`
 (8-72 UTF-8 bytes). A date-only expiry includes the full UTC day. One-time use
 is represented by a click limit of one. `PATCH /api/urls/:id` accepts these
@@ -235,13 +246,31 @@ change.
 Account creation is limited to five attempts per IP per 15 minutes; sign-in is
 limited to ten attempts per IP per 15 minutes.
 
+`POST /api/urls/import` accepts `{ "items": [{ "longUrl": "...",
+"customAlias": "optional" }] }` and optionally a verified `domainId`. Invalid
+rows are reported individually while valid rows are created. The dashboard's
+CSV format requires a `longUrl` column and optionally accepts `customAlias`.
+For anonymous link analytics, save the `analyticsToken` returned by
+`POST /api/urls`; send it in the `X-Analytics-Token` header when requesting
+`/api/urls/public/:code/analytics`. The token grants access to that link's
+analytics and cannot be recovered if lost.
+
+To connect a custom domain, add it in the signed-in dashboard, publish the
+displayed TXT record at `_shortly-verification.<hostname>`, and select **Verify
+DNS** after it propagates. The domain must also be routed to the API deployment
+and have HTTPS configured; DNS verification proves control of the domain but
+does not configure hosting or TLS. Links assigned to a domain use HTTPS URLs.
+The domain cannot be disconnected while any of the account's links still use it.
+
 ## Data model and indexes
 
 The `User` Mongoose model stores a unique normalized email, a password hash
 excluded from ordinary query results, and `createdAt`. The `Url` Mongoose model
 stores `code`, `longUrl`, optional `userId`,
-`customAlias`, `expiresAt`, `passwordHash`, `clickLimit`, `clicks`, `isActive`,
-and `createdAt`. Link passwords use bcryptjs with 12 rounds and are excluded
+`customAlias`, optional `shortDomain`, a hash of the anonymous analytics token,
+`expiresAt`, `passwordHash`, `clickLimit`, `clicks`, `isActive`, and `createdAt`.
+The `CustomDomain` model stores account ownership, a globally unique hostname,
+its DNS verification challenge, and verification time. Link passwords use bcryptjs with 12 rounds and are excluded
 from ordinary queries; account owners can replace or remove them without
 retrieving the hash. Expiry is enforced on each redirect. The `Click` model stores `urlId`, timestamp, origin-only
 referrer, bounded user-agent, parsed device/browser/OS, approximate country and
@@ -285,7 +314,8 @@ reliability at the cost of extra infrastructure and redirect-path complexity;
 it is not added until reliability needs justify it.
 
 The authenticated analytics endpoint verifies link ownership before querying
-clicks. `from` and `to` accept ISO dates; date-only `to` values include the
+clicks. Anonymous analytics require a separate high-entropy token; only its
+SHA-256 hash is stored, and access is rate-limited. `from` and `to` accept ISO dates; date-only `to` values include the
 entire UTC day. The range is inclusive and capped at 366 days; omitted values
 default to the most recent 366 days. Missing daily counts are returned as
 zeroes. Referrer values are reduced to origin only to avoid retaining paths or
@@ -296,8 +326,8 @@ short URL and can be downloaded from the dashboard as PNG files.
 
 The API currently limits requests to 100 per IP per 15 minutes, link creation
 to 20 per IP per 15 minutes, password verification to 10 per IP per 15
-minutes, and redirects to 300 per IP per 15 minutes. These in-memory limits
-reset on process restart. Before proxy-backed deployment,
+minutes, anonymous analytics to 30 per IP per 15 minutes, and redirects to 300
+per IP per 15 minutes. These in-memory limits reset on process restart. Before proxy-backed deployment,
 configure Express to trust only the actual hosting proxy chain so rate limits
 use the visitor address rather than a shared proxy address.
 
@@ -324,12 +354,15 @@ use the visitor address rather than a shared proxy address.
 | POST `/api/urls` | Create an anonymous or account-owned short link |
 | POST `/api/auth/register`, `/api/auth/login` | Register or sign in |
 | POST `/api/urls` | Create anonymous or account-owned links with optional expiry/limit/password controls |
+| POST `/api/urls/import` | Import links in bulk from CSV or one-URL-per-line text |
 | POST `/api/urls/:code/verify` | Verify a protected link password and redirect |
 | GET `/api/urls?page=&search=&status=` | List the signed-in user's links |
 | GET `/api/urls/summary` | Return the signed-in user's dashboard summary |
 | GET `/api/urls/:id/analytics?from=&to=` | Return owner-scoped click analytics |
+| GET `/api/urls/public/:code/analytics` | Return token-protected analytics for an anonymous link |
 | PATCH/DELETE `/api/urls/:id` | Update or remove an owned link |
 | POST `/api/urls/bulk` | Bulk enable, disable, or delete owned links |
+| GET/POST/DELETE `/api/domains` | Manage and verify account-owned custom domains |
 | GET `/:code` | Redirect to a saved destination with HTTP `302` |
 | POST `/api/urls/:code/verify` | Verify a password-protected link before redirecting |
 
@@ -337,9 +370,11 @@ Tests cover API input validation, URL and alias validation, public/private
 address checks, short-link creation, code-collision retries, redirects, expiry,
 click limits, concurrent one-time use, password verification and hashing,
 verification rate limiting, JWT authentication, owner-scoped management, click
-metadata privacy, asynchronous click-log failures, and owner-scoped
-analytics/date aggregation. Database integration still needs to be verified
-with a configured Atlas cluster.
+metadata privacy, asynchronous click-log failures, owner-scoped and token-gated
+analytics, custom-domain verification, bulk imports, and link-import CSV
+parsing.
+Database integration still needs to be verified with a configured Atlas
+cluster.
 
 ## Deployment status
 

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import Click from "../src/models/Click.js";
+import CustomDomain from "../src/models/CustomDomain.js";
 import User from "../src/models/User.js";
 import Url from "../src/models/Url.js";
 
@@ -19,6 +20,14 @@ test("defines a unique normalized email index and hides password hashes", () => 
   ));
   assert.equal(User.schema.path("email").options.lowercase, true);
   assert.equal(User.schema.path("passwordHash").options.select, false);
+});
+
+test("keeps anonymous analytics tokens private and indexes custom domains uniquely", () => {
+  assert.equal(Url.schema.path("analyticsTokenHash").options.select, false);
+  assert.ok(CustomDomain.schema.indexes().some(([fields, options]) =>
+    fields.hostname === 1 && options.unique === true
+  ));
+  assert.equal(CustomDomain.schema.path("verificationToken").options.select, false);
 });
 
 test("indexes click events by URL and timestamp and hides hashed IPs", () => {
